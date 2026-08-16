@@ -154,6 +154,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
     <div class="noise"></div>
@@ -657,7 +658,12 @@
         function loadCatalog() {
             const saved = localStorage.getItem('jovafam_catalog');
             if (saved) {
-                try { state.catalog = JSON.parse(saved); } catch(e) {}
+                try { 
+                    const parsed = JSON.parse(saved);
+                    if (parsed && parsed.products && parsed.products.length > 0) {
+                        state.catalog = parsed;
+                    }
+                } catch(e) { console.log('Catalogo localStorage corrupto, usando default'); }
             }
             if (!state.catalog) {
                 state.catalog = getDefaultCatalog();
@@ -1681,15 +1687,17 @@
 
         async function processOfflineOrder() {
             const orderId = 'JFV-' + Date.now().toString(36).toUpperCase().slice(-4) + Math.random().toString(36).slice(2, 5).toUpperCase();
+            const token = crypto.randomUUID ? crypto.randomUUID() : 'offline-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
             const viewsWithLayers = VIEWS.filter(v => state.layers[v.id].length > 0);
             let designDownloaded = false;
+            let designDataUrl = null;
 
             if (viewsWithLayers.length > 0) {
                 try {
                     const blob = await generateDesignImage(viewsWithLayers[0].id);
                     if (blob) {
-                        const designDataUrl = await blobToDataURL(blob);
+                        designDataUrl = await blobToDataURL(blob);
                         const a = document.createElement('a');
                         a.href = designDataUrl;
                         a.download = `diseno-${orderId}.png`;
@@ -1703,29 +1711,69 @@
                 }
             }
 
-            let msgText = `🛍️ PEDIDO MODO SIMULACIÓN #${orderId}\n\n`;
-            msgText += `👤 CLIENTE\n`;
-            msgText += `Nombre: ${tempOrderData.nombre}\n`;
-            msgText += `Correo: ${tempOrderData.email}\n`;
-            msgText += `Teléfono: ${tempOrderData.telefono}\n\n`;
-            msgText += `📍 DIRECCIÓN\n`;
-            msgText += `País: ${tempOrderData.pais}\n`;
-            msgText += `Ciudad: ${tempOrderData.ciudad}\n`;
-            msgText += `Dirección: ${tempOrderData.direccion}\n`;
-            if (tempOrderData.addressExtra) msgText += `Info adicional: ${tempOrderData.addressExtra}\n`;
-            if (tempOrderData.postalCode) msgText += `Código postal: ${tempOrderData.postalCode}\n`;
-            msgText += `\n👕 PRODUCTO\n`;
-            msgText += `Producto: ${state.product.name}\n`;
-            msgText += `Talla: ${tempOrderData.talla}\n`;
-            msgText += `Color: ${tempOrderData.colorName}\n`;
-            msgText += `Cantidad: ${state.qty}\n`;
-            msgText += `Precio total: $${tempOrderData.totalPrice.toFixed(2)}\n\n`;
+            // Guardar en historial local (para que el admin lo vea en el mismo navegador)
+            try {
+                let history = JSON.parse(localStorage.getItem('jovafam_order_history') || '[]');
+                history.unshift({
+                    token: token,
+                    order_id: orderId,
+                    customer: tempOrderData.nombre,
+                    product: state.product.name,
+                    date: new Date().toLocaleDateString('es-ES'),
+                    design_url: designDataUrl,
+                    offline: true
+                });
+                if (history.length > 50) history = history.slice(0, 50);
+                localStorage.setItem('jovafam_order_history', JSON.stringify(history));
+            } catch(e) {}
+
+            let msgText = `🛍️ NUEVO PEDIDO #${orderId}
+
+`;
+            msgText += `👤 CLIENTE
+`;
+            msgText += `Nombre: ${tempOrderData.nombre}
+`;
+            msgText += `Correo: ${tempOrderData.email}
+`;
+            msgText += `Teléfono: ${tempOrderData.telefono}
+
+`;
+            msgText += `📍 DIRECCIÓN
+`;
+            msgText += `País: ${tempOrderData.pais}
+`;
+            msgText += `Ciudad: ${tempOrderData.ciudad}
+`;
+            msgText += `Dirección: ${tempOrderData.direccion}
+`;
+            if (tempOrderData.addressExtra) msgText += `Info adicional: ${tempOrderData.addressExtra}
+`;
+            if (tempOrderData.postalCode) msgText += `Código postal: ${tempOrderData.postalCode}
+`;
+            msgText += `
+👕 PRODUCTO
+`;
+            msgText += `Producto: ${state.product.name}
+`;
+            msgText += `Talla: ${tempOrderData.talla}
+`;
+            msgText += `Color: ${tempOrderData.colorName}
+`;
+            msgText += `Cantidad: ${state.qty}
+`;
+            msgText += `Precio total: $${tempOrderData.totalPrice.toFixed(2)}
+
+`;
             if (designDownloaded) {
-                msgText += `🎨 La imagen del diseño se descargó automáticamente como "diseno-${orderId}.png". Por favor adjúntala manualmente a este mensaje.\n`;
+                msgText += `🎨 La imagen del diseño se descargó automáticamente como "diseno-${orderId}.png". Por favor adjúntala manualmente a este mensaje.
+`;
             } else {
-                msgText += `🎨 No se pudo generar la imagen del diseño automáticamente.\n`;
+                msgText += `🎨 No se pudo generar la imagen del diseño automáticamente.
+`;
             }
-            if (tempOrderData.notas) msgText += `\n📝 NOTAS: ${tempOrderData.notas}`;
+            if (tempOrderData.notas) msgText += `
+📝 NOTAS: ${tempOrderData.notas}`;
 
             const encodedMsg = encodeURIComponent(msgText);
             const whatsappNum = (state.settings?.whatsapp || '').replace(/\D/g, '');
@@ -1735,11 +1783,61 @@
             if (whatsappNum) {
                 window.open('https://wa.me/' + whatsappNum + '?text=' + encodedMsg, '_blank');
             } else {
-                alert('Pedido #' + orderId + ' generado en modo simulación.' + (designDownloaded ? ' La imagen del diseño se descargó automáticamente.' : ''));
+                alert('Pedido #' + orderId + ' generado exitosamente.' + (designDownloaded ? ' La imagen del diseño se descargó automáticamente.' : '') + '
+
+Guarda el número de WhatsApp en el panel de admin para enviar automáticamente.');
+            }
+        }async function finalizeOrder(orderId, orderToken) {
+            const currentUrl = window.location.href;
+            const basePath = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+            const orderLink = basePath + 'order.html?token=' + orderToken;
+
+            var msgText = ' NUEVO PEDIDO #' + orderId + '\n\n';
+            msgText += ' CLIENTE\n';
+            msgText += 'Nombre: ' + tempOrderData.nombre + '\n';
+            msgText += 'Correo: ' + tempOrderData.email + '\n';
+            msgText += 'Telefono: ' + tempOrderData.telefono + '\n\n';
+            msgText += ' DIRECCION\n';
+            msgText += 'Pais: ' + tempOrderData.pais + '\n';
+            msgText += 'Ciudad: ' + tempOrderData.ciudad + '\n';
+            msgText += 'Direccion: ' + tempOrderData.direccion + '\n';
+            if (tempOrderData.addressExtra) msgText += 'Info adicional: ' + tempOrderData.addressExtra + '\n';
+            if (tempOrderData.postalCode) msgText += 'Codigo postal: ' + tempOrderData.postalCode + '\n';
+            msgText += '\n\uD83D\uDC55 PRODUCTO\n';
+            msgText += 'Producto: ' + state.product.name + '\n';
+            msgText += 'Talla: ' + tempOrderData.talla + '\n';
+            msgText += 'Color: ' + tempOrderData.colorName + '\n';
+            msgText += 'Cantidad: ' + state.qty + '\n';
+            msgText += 'Precio total: $' + tempOrderData.totalPrice.toFixed(2) + '\n\n';
+            msgText += '🎨 DISENO DEL PEDIDO\n';
+            msgText += orderLink + '\n';
+            if (tempOrderData.notas) msgText += '\n\uD83D\uDCDD NOTAS: ' + tempOrderData.notas;
+
+            const encodedMsg = encodeURIComponent(msgText);
+            const whatsappNum = (state.settings?.whatsapp || '').replace(/\D/g, '');
+
+            closeOrderModal();
+
+            if (whatsappNum) {
+                window.open('https://wa.me/' + whatsappNum + '?text=' + encodedMsg, '_blank');
+            } else {
+                alert('Pedido #' + orderId + ' guardado exitosamente. Enlace: ' + orderLink);
             }
         }
 
-        async function goToPayment(e) {
+        // ===== PROCESAR PAGO EXITOSO =====
+        async function proceedWithOrder(paymentMethod, transactionId) {
+            try {
+                const result = await createOrderInSupabase('paid', paymentMethod, transactionId);
+                if (result) {
+                    await finalizeOrder(result.orderId, result.token);
+                }
+            } catch (err) {
+                alert('Error al guardar el pedido: ' + err.message);
+            }
+        }
+
+async function submitOrder(e) {
             e.preventDefault();
             const form = e.target;
 
@@ -1757,232 +1855,186 @@
             for (const field of requiredFields) {
                 const el = form[field.name];
                 if (!el || !el.value.trim()) {
-                    alert('Por favor completa el campo: ' + field.label);
+                    alert(`Por favor completa el campo: ${field.label}`);
                     if (el) el.focus();
                     return;
                 }
             }
 
-            // Guardar datos temporalmente
-            const colorName = state.product.colors.find(c => c.id === state.colorId)?.name || '';
-            const totalPrice = parseFloat(document.getElementById('price-tag').textContent) || 0;
-
-            tempOrderData = {
-                nombre: form.nombre.value.trim(),
-                email: form.email.value.trim(),
-                telefono: form.telefono.value.trim(),
-                pais: form.pais.value,
-                ciudad: form.ciudad.value,
-                direccion: form.direccion.value.trim(),
-                addressExtra: (form.address_extra?.value || '').trim(),
-                postalCode: (form.postal_code?.value || '').trim(),
-                talla: form.talla.value,
-                notas: form.notas.value.trim(),
-                colorName: colorName,
-                totalPrice: totalPrice
-            };
-
-            // Verificar si pagos estan activados
-            const paymentsEnabled = localStorage.getItem('jovafam_payments_enabled') === 'true';
-
-            if (!paymentsEnabled) {
-                // Modo simulacion: intentar Supabase, fallback a offline
-                let result = null;
-                try {
-                    if (supabaseClient) {
-                        result = await createOrderInSupabase('pending', 'manual', null);
-                    }
-                } catch (err) {
-                    console.log('Supabase error en modo simulacion, usando fallback offline:', err.message);
-                }
-                if (result) {
-                    await finalizeOrder(result.orderId, result.token);
-                } else {
-                    await processOfflineOrder();
-                }
+            // Si no hay Supabase, ir a modo offline directamente
+            if (!supabaseClient) {
+                await processOfflineOrder();
                 return;
             }
 
-            // Mostrar resumen en paso 2
-            document.getElementById('payment-product-name').textContent = state.product.name;
-            document.getElementById('payment-qty').textContent = state.qty;
-            document.getElementById('payment-total').textContent = '$' + totalPrice.toFixed(2);
+            const nombre = form.nombre.value.trim();
+            const email = form.email.value.trim();
+            const telefono = form.telefono.value.trim();
+            const pais = form.pais.value;
+            const ciudad = form.ciudad.value;
+            const direccion = form.direccion.value.trim();
+            const addressExtra = (form.address_extra?.value || '').trim();
+            const postalCode = (form.postal_code?.value || '').trim();
+            const talla = form.talla.value;
+            const notas = form.notas.value.trim();
 
-            // Cambiar a paso de pago
-            document.getElementById('step-shipping').classList.add('hidden');
-            document.getElementById('step-payment').classList.remove('hidden');
-
-            // Renderizar boton de PayPal
-            renderPayPalButton(totalPrice);
-        }
-
-        function backToShipping() {
-            document.getElementById('step-payment').classList.add('hidden');
-            document.getElementById('step-shipping').classList.remove('hidden');
-        }
-
-        // ===== PAYPAL =====
-        function renderPayPalButton(amount) {
-            const container = document.getElementById('paypal-button-container');
-            const errorEl = document.getElementById('paypal-error');
-            container.innerHTML = '';
-
-            // Obtener Client ID de la configuracion
-            const paypalClientId = (state.settings?.paypalClientId || '').trim();
-            if (!paypalClientId || paypalClientId === 'test') {
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            errorEl.classList.add('hidden');
-
-            // Cargar script de PayPal si no esta cargado o si cambio el Client ID
-            const existingScript = document.getElementById('paypal-script');
-            if (existingScript) {
-                existingScript.remove();
-            }
-
-            const script = document.createElement('script');
-            script.id = 'paypal-script';
-            script.src = 'https://www.paypal.com/sdk/js?client-id=' + paypalClientId + '&currency=USD&intent=capture';
-            script.onload = function() {
-                if (!window.paypal) {
-                    errorEl.textContent = 'Error cargando PayPal. Intenta recargar la pagina.';
-                    errorEl.classList.remove('hidden');
-                    return;
-                }
-                window.paypal.Buttons({
-                    style: {
-                        layout: 'vertical',
-                        color: 'gold',
-                        shape: 'rect',
-                        label: 'pay'
-                    },
-                    createOrder: function(data, actions) {
-                        return actions.order.create({
-                            purchase_units: [{
-                                amount: {
-                                    value: amount.toFixed(2),
-                                    currency_code: 'USD'
-                                },
-                                description: 'Pedido JOVAFAM - ' + state.product.name
-                            }]
-                        });
-                    },
-                    onApprove: function(data, actions) {
-                        return actions.order.capture().then(function(details) {
-                            proceedWithOrder('paypal', details.id);
-                        });
-                    },
-                    onError: function(err) {
-                        console.error('PayPal error:', err);
-                        alert('Hubo un error con PayPal. Intenta con otro metodo de pago.');
-                    }
-                }).render('#paypal-button-container');
-            };
-            script.onerror = function() {
-                errorEl.textContent = 'No se pudo cargar PayPal. Verifica tu conexion.';
-                errorEl.classList.remove('hidden');
-            };
-            document.head.appendChild(script);
-        }
-
-        // ===== STRIPE =====
-        async function payWithStripe() {
-            const btn = document.getElementById('stripe-pay-btn');
-            const errorEl = document.getElementById('stripe-error');
-
-            // Verificar configuracion
-            const stripeKey = (state.settings?.stripePublishableKey || '').trim();
-            if (!stripeKey) {
-                errorEl.classList.remove('hidden');
-                return;
-            }
-            errorEl.classList.add('hidden');
-
-            btn.disabled = true;
-            btn.innerHTML = '<span class="flex items-center justify-center gap-2"><svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando...</span>';
+            // Boton loading
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="flex items-center justify-center gap-2"><svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Guardando pedido...</span>';
 
             try {
-                // Para Stripe sin backend propio, usamos un flujo de "pago simulado" 
-                // o redireccion a Stripe Checkout via Supabase Edge Function.
-                // Por ahora, mostramos un modal de tarjeta con Stripe Elements
-                // que procesa el pago directamente.
+                // Generar token unico
+                const token = crypto.randomUUID ? crypto.randomUUID() : 'token-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
-                if (!window.Stripe) {
-                    await loadStripeScript();
+                // Generar y subir disenos (solo vistas con capas)
+                const viewsWithLayers = VIEWS.filter(v => state.layers[v.id].length > 0);
+                if (viewsWithLayers.length === 0) {
+                    throw new Error('No hay diseno personalizado. Agrega al menos una imagen o texto.');
                 }
 
-                const stripe = window.Stripe(stripeKey);
+                let designUrl = null;
+                const designViews = [];
 
-                // Crear pedido primero en estado pending para tener el token
-                const result = await createOrderInSupabase('pending', 'stripe', null);
-                if (!result) {
-                    btn.disabled = false;
-                    btn.innerHTML = 'Pagar con tarjeta de credito';
+                // Generar y subir cada vista que tenga capas
+                for (const v of viewsWithLayers) {
+                    const blob = await generateDesignImage(v.id);
+                    if (!blob) continue;
+
+                    const fileName = `design-${token}-${v.id}.png`;
+                    const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                        .from('designs')
+                        .upload(fileName, blob, { contentType: 'image/png', upsert: false });
+
+                    if (uploadError) {
+                        console.error('Error subiendo imagen:', uploadError);
+                        continue;
+                    }
+
+                    const { data: urlData } = supabaseClient.storage
+                        .from('designs')
+                        .getPublicUrl(fileName);
+
+                    const url = urlData.publicUrl;
+                    designViews.push({ view: v.name, url: url });
+                    if (!designUrl) designUrl = url;
+                }
+
+                // designUrl = primera imagen subida (preferiblemente frente)
+                if (!designUrl) {
+                    throw new Error('No se pudo guardar la imagen del diseno. Intenta nuevamente.');
+                }
+                console.log('Vistas guardadas:', designViews.length, designViews);
+
+                // Guardar pedido en Supabase
+                const colorName = state.product.colors.find(c => c.id === state.colorId)?.name || '';
+                const totalPrice = parseFloat(document.getElementById('price-tag').textContent) || 0;
+
+                const { data: orderData, error: orderError } = await supabaseClient.rpc('create_order', {
+                    p_customer_name: nombre,
+                    p_customer_email: email,
+                    p_customer_phone: telefono,
+                    p_country: pais,
+                    p_city: ciudad,
+                    p_address: direccion,
+                    p_address_extra: addressExtra,
+                    p_postal_code: postalCode,
+                    p_product_name: state.product.name,
+                    p_product_size: talla,
+                    p_product_color: colorName,
+                    p_quantity: state.qty,
+                    p_total_price: totalPrice,
+                    p_design_url: designUrl,
+                    p_design_views: designViews
+                });
+
+                if (orderError || !orderData || orderData.length === 0) {
+                    throw new Error(orderError?.message || 'Error al guardar el pedido en el servidor');
+                }
+
+                const order = orderData[0];
+                const orderId = order.order_id;
+                const orderToken = order.token;
+
+                // Construir enlace al pedido
+                // Generar URL absoluta completa (funciona desde WhatsApp en cualquier dispositivo)
+                const currentUrl = window.location.href;
+                const basePath = currentUrl.substring(0, currentUrl.lastIndexOf('/') + 1);
+                const orderLink = basePath + 'order.html?token=' + orderToken;
+
+                // Construir mensaje de WhatsApp (usando encodeURIComponent para todo el texto)
+                let msgText = `🛍️ NUEVO PEDIDO #${orderId}
+
+`;
+                msgText += `👤 CLIENTE
+`;
+                msgText += `Nombre: ${nombre}
+`;
+                msgText += `Correo: ${email}
+`;
+                msgText += `Telefono: ${telefono}
+
+`;
+                msgText += `📍 DIRECCION
+`;
+                msgText += `Pais: ${pais}
+`;
+                msgText += `Ciudad: ${ciudad}
+`;
+                msgText += `Direccion: ${direccion}
+`;
+                if (addressExtra) msgText += `Info adicional: ${addressExtra}
+`;
+                if (postalCode) msgText += `Codigo postal: ${postalCode}
+`;
+                msgText += `
+👕 PRODUCTO
+`;
+                msgText += `Producto: ${state.product.name}
+`;
+                msgText += `Talla: ${talla}
+`;
+                msgText += `Color: ${colorName}
+`;
+                msgText += `Cantidad: ${state.qty}
+`;
+                msgText += `Precio total: $${totalPrice.toFixed(2)}
+
+`;
+                msgText += `🎨 DISENO DEL PEDIDO
+`;
+                msgText += `${orderLink}
+`;
+                if (notas) msgText += `
+📝 NOTAS: ${notas}`;
+
+                const encodedMsg = encodeURIComponent(msgText);
+
+                const whatsappNum = (state.settings?.whatsapp || '').replace(/\D/g, '');
+                if (!whatsappNum) {
+                    alert('Numero de WhatsApp no configurado en el admin. El pedido se guardo correctamente con ID ' + orderId + '. Enlace: ' + orderLink);
+                    closeOrderModal();
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalText;
                     return;
                 }
 
-                // Redirigir a Stripe Checkout usando una sesion
-                // Como no tenemos backend, usamos un approach simple:
-                // Crear un PaymentIntent y usar Stripe Elements
-                // Pero eso requiere backend... 
-                // SOLUCION TEMPORAL: Simular pago exitoso para demostracion
-                // En produccion, el usuario debe configurar una Edge Function en Supabase.
-
-                // Para hacerlo REAL sin backend, usamos Stripe Payment Links
-                // o redirigimos a una pagina de pago externa.
-
-                // FLUJO REAL CON EDGE FUNCTION (si esta configurada):
-                const edgeUrl = state.settings?.stripeEdgeUrl?.trim();
-                if (edgeUrl) {
-                    const response = await fetch(edgeUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (getSupabaseConfig().key || '') },
-                        body: JSON.stringify({
-                            amount: tempOrderData.totalPrice,
-                            order_token: result.token,
-                            product_name: state.product.name
-                        })
-                    });
-                    const data = await response.json();
-                    if (data.url) {
-                        window.location.href = data.url;
-                        return;
-                    }
-                }
-
-                // FLUJO DEMO: Si no hay Edge Function, simular pago
-                // Esto es solo para pruebas. En produccion debe usarse la Edge Function.
-                const confirmed = confirm('DEMO: Esto simularia un pago con Stripe. En produccion, esto redirigiria a Stripe Checkout.\n\n¿Confirmar pago de $' + tempOrderData.totalPrice.toFixed(2) + '?');
-                if (confirmed) {
-                    await updateOrderPayment(result.token, 'paid', 'stripe', 'demo_' + Date.now());
-                    await finalizeOrder(result.orderId, result.token);
-                }
-
-                btn.disabled = false;
-                btn.innerHTML = 'Pagar con tarjeta de credito';
+                // Cerrar modal y abrir WhatsApp
+                closeOrderModal();
+                window.open(`https://wa.me/${whatsappNum}?text=${encodedMsg}`, '_blank');
 
             } catch (err) {
                 console.error(err);
-                alert('Error: ' + err.message);
-                btn.disabled = false;
-                btn.innerHTML = 'Pagar con tarjeta de credito';
+                alert('Hubo un error al guardar el pedido. Se procedera en modo offline.
+
+Error: ' + err.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+                // Fallback a offline
+                await processOfflineOrder();
             }
-        }
-
-        function loadStripeScript() {
-            return new Promise(function(resolve, reject) {
-                if (window.Stripe) { resolve(); return; }
-                var script = document.createElement('script');
-                script.src = 'https://js.stripe.com/v3/';
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        }
-
-        // ===== CREAR PEDIDO EN SUPABASE =====
-        async function createOrderInSupabase(paymentStatus, paymentMethod, transactionId) {
+        }async function createOrderInSupabase(paymentStatus, paymentMethod, transactionId) {
             if (!supabaseClient) {
                 alert('Supabase no esta configurado.');
                 return null;
