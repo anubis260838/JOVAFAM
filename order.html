@@ -192,15 +192,15 @@
 
         async function loadOrder() {
             var timeoutId = setTimeout(function() {
-                // Si es offline, no mostrar error-notfound, mostrar error-config
-                var params = new URLSearchParams(window.location.search);
-                var token = params.get('token');
-                if (token && token.indexOf('offline-') === 0) {
-                    showScreen('error-config');
-                } else {
-                    showScreen('error-notfound');
-                }
+                showScreen('error-notfound');
             }, 15000);
+
+            var hasSupabase = initSupabase();
+            if (!hasSupabase) {
+                clearTimeout(timeoutId);
+                showScreen('error-config');
+                return;
+            }
 
             var params = new URLSearchParams(window.location.search);
             var token = params.get('token');
@@ -208,29 +208,6 @@
             if (!token) {
                 clearTimeout(timeoutId);
                 showScreen('error-notfound');
-                return;
-            }
-
-            // Si es un pedido offline, buscar en localStorage directamente
-            if (token.indexOf('offline-') === 0) {
-                clearTimeout(timeoutId);
-                try {
-                    var history = JSON.parse(localStorage.getItem('jovafam_order_history') || '[]');
-                    var order = history.find(function(h) { return h.token === token; });
-                    if (order) {
-                        displayOfflineOrder(order);
-                        return;
-                    }
-                } catch(e) {}
-                showScreen('error-notfound');
-                return;
-            }
-
-            // Intentar con Supabase
-            var hasSupabase = initSupabase();
-            if (!hasSupabase) {
-                clearTimeout(timeoutId);
-                showScreen('error-config');
                 return;
             }
 
@@ -315,53 +292,6 @@
                 designContainer.appendChild(div);
             } else {
                 designContainer.innerHTML = '<p class="text-luxury-500 text-sm">No hay imagen del diseno disponible.</p>';
-            }
-        }
-
-        
-        function displayOfflineOrder(order) {
-            showScreen('order-content');
-
-            document.getElementById('order-id').textContent = '#' + (order.order_id || '???');
-            document.getElementById('order-date').textContent = order.date || new Date().toLocaleString('es-ES');
-
-            document.getElementById('customer-name').textContent = order.customer || '-';
-            document.getElementById('customer-email').textContent = 'No disponible (offline)';
-            document.getElementById('customer-phone').textContent = 'No disponible (offline)';
-            document.getElementById('customer-country').textContent = 'No disponible (offline)';
-            document.getElementById('customer-city').textContent = 'No disponible (offline)';
-            document.getElementById('customer-address').textContent = 'No disponible (offline)';
-            document.getElementById('customer-address-extra').textContent = 'No especificado';
-            document.getElementById('customer-postal').textContent = 'No especificado';
-
-            document.getElementById('product-name').textContent = order.product || '-';
-            document.getElementById('product-size').textContent = 'No especificado';
-            document.getElementById('product-color').textContent = '-';
-            document.getElementById('product-qty').textContent = '-';
-            document.getElementById('product-price').textContent = 'Ver editor';
-
-            var designContainer = document.getElementById('design-images');
-            designContainer.innerHTML = '';
-
-            if (order.design_url) {
-                var div = document.createElement('div');
-                div.className = 'rounded-xl overflow-hidden border border-luxury-700/50 bg-luxury-900';
-                div.innerHTML = '<div class="px-4 py-2 bg-luxury-800/50 border-b border-luxury-700/30"><span class="font-mono text-xs text-luxury-gold uppercase">Diseno Offline</span></div><img src="' + order.design_url + '" alt="Diseno del pedido" class="w-full h-auto max-h-[600px] object-contain" onerror="this.style.display='none'">';
-                designContainer.appendChild(div);
-            } else {
-                designContainer.innerHTML = '<p class="text-luxury-500 text-sm">No hay imagen del diseno disponible. El pedido fue generado en modo offline sin captura de pantalla.</p>';
-            }
-
-            // Badge offline
-            var badge = document.getElementById('payment-badge');
-            if (badge) {
-                badge.innerHTML = '<span class="inline-flex items-center gap-1 px-3 py-1 bg-yellow-500/10 border border-yellow-500/30 rounded-full text-xs text-yellow-400 font-mono uppercase tracking-wider"><span class="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>Pedido Offline (no sincronizado)</span>';
-            }
-
-            // Ocultar seccion de pago para offline
-            var paymentSection = document.getElementById('payment-info');
-            if (paymentSection) {
-                paymentSection.innerHTML = '<p class="text-yellow-400 text-sm">Este pedido fue generado en modo offline. No hay informacion de pago ni de envio detallada.</p>';
             }
         }
 
