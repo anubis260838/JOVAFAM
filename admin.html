@@ -209,6 +209,53 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="bg-luxury-800/50 border border-luxury-700/50 rounded-xl p-5 md:col-span-2">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="font-mono text-xs uppercase tracking-widest text-luxury-gold">Metodos de Pago</h3>
+                                <p class="text-xs text-luxury-500 mt-1">Configura a donde se enviara al cliente para realizar el pago.</p>
+                            </div>
+                            <span class="text-[10px] text-luxury-600 uppercase tracking-wider">Pruebas: puedes desactivarlos</span>
+                        </div>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="bg-luxury-900/40 border border-luxury-700/50 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div>
+                                        <p class="text-sm text-luxury-cream font-semibold">Tarjeta</p>
+                                        <p class="text-[10px] text-luxury-600">Enlace de pago para tarjetas</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="settings-card-enabled" class="sr-only peer" onchange="saveSettings()">
+                                        <span class="w-9 h-5 bg-luxury-700 rounded-full peer-checked:bg-luxury-gold transition-colors"></span>
+                                        <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></span>
+                                    </label>
+                                </div>
+                                <input type="url" id="settings-card-url" placeholder="https://..."
+                                       class="w-full bg-luxury-900 border border-luxury-700 rounded-lg px-3 py-2 text-luxury-cream text-sm focus:border-luxury-gold focus:outline-none"
+                                       onchange="saveSettings()">
+                                <p class="text-[10px] text-luxury-600 mt-1">Ej.: enlace de Stripe, Wompi, Mercado Pago, etc.</p>
+                            </div>
+                            <div class="bg-luxury-900/40 border border-luxury-700/50 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div>
+                                        <p class="text-sm text-luxury-cream font-semibold">PayPal</p>
+                                        <p class="text-[10px] text-luxury-600">Enlace de pago de PayPal</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="settings-paypal-enabled" class="sr-only peer" onchange="saveSettings()">
+                                        <span class="w-9 h-5 bg-luxury-700 rounded-full peer-checked:bg-luxury-gold transition-colors"></span>
+                                        <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></span>
+                                    </label>
+                                </div>
+                                <input type="url" id="settings-paypal-url" placeholder="https://www.paypal.com/..."
+                                       class="w-full bg-luxury-900 border border-luxury-700 rounded-lg px-3 py-2 text-luxury-cream text-sm focus:border-luxury-gold focus:outline-none"
+                                       onchange="saveSettings()">
+                                <p class="text-[10px] text-luxury-600 mt-1">Puedes pegar tu enlace PayPal.Me o enlace de pago.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="bg-luxury-800/50 border border-luxury-700/50 rounded-xl p-5">
                         <h3 class="font-mono text-xs uppercase tracking-widest text-luxury-gold mb-4">Precios por Zona de Impresion</h3>
                         <p class="text-xs text-luxury-500 mb-4">Define el costo adicional por cada zona donde se imprime el diseno.</p>
@@ -320,7 +367,11 @@
             priceFront: 8.00,
             priceBack: 2.00,
             priceSides: 1.00,
-            discounts: []
+            discounts: [],
+            paymentCardEnabled: false,
+            paymentCardUrl: '',
+            paymentPaypalEnabled: false,
+            paymentPaypalUrl: ''
         };
 
         const DEFAULT_HOME = {
@@ -410,6 +461,10 @@
             settings.priceFront = parseFloat(document.getElementById('settings-price-front').value) || 8;
             settings.priceBack = parseFloat(document.getElementById('settings-price-back').value) || 2;
             settings.priceSides = parseFloat(document.getElementById('settings-price-sides').value) || 1;
+            settings.paymentCardEnabled = document.getElementById('settings-card-enabled').checked;
+            settings.paymentCardUrl = document.getElementById('settings-card-url').value.trim();
+            settings.paymentPaypalEnabled = document.getElementById('settings-paypal-enabled').checked;
+            settings.paymentPaypalUrl = document.getElementById('settings-paypal-url').value.trim();
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
             toast('Configuracion guardada');
         }
@@ -428,6 +483,10 @@
                 document.getElementById('settings-price-front').value = (settings.priceFront !== undefined ? settings.priceFront : 8).toFixed(2);
                 document.getElementById('settings-price-back').value = (settings.priceBack !== undefined ? settings.priceBack : 2).toFixed(2);
                 document.getElementById('settings-price-sides').value = (settings.priceSides !== undefined ? settings.priceSides : 1).toFixed(2);
+                document.getElementById('settings-card-enabled').checked = settings.paymentCardEnabled === true;
+                document.getElementById('settings-card-url').value = settings.paymentCardUrl || '';
+                document.getElementById('settings-paypal-enabled').checked = settings.paymentPaypalEnabled === true;
+                document.getElementById('settings-paypal-url').value = settings.paymentPaypalUrl || '';
                 renderProducts(); updateStats(); renderDiscounts(); renderHomePanels();
             } else {
                 document.getElementById('login-error').classList.remove('hidden');
