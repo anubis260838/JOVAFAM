@@ -1127,7 +1127,7 @@ function loadData() {
                                  ondragover="galleryDragOver(event,${pIndex})" ondragleave="galleryDragLeave(event,${pIndex})" ondrop="galleryDrop(event,${pIndex})">
                                 ${imagesHtml}
                             </div>
-                            <p class="text-[10px] text-luxury-600">Arrastra imagenes o carpetas aqui. Selecciona color y vista para cada foto. Max 3MB por imagen.</p>
+                            <p class="text-[10px] text-luxury-600">Arrastra imagenes o carpetas aqui. Selecciona color y vista para cada foto. Max 10MB por imagen.</p>
                         </div>
                     </div>
                 `;
@@ -1244,7 +1244,101 @@ function loadData() {
             }
         }
 
+        // ===== PERSISTENT IMAGE UPLOAD (SUPABASE STORAGE) =====
+        // Las imágenes del catálogo se guardan en Supabase Storage en lugar de
+        // depender de localStorage/Base64. Requiere un bucket público llamado "catalog".
+        async function uploadCatalogImage(file, productId, prefix='gallery') {
+            const config = getSupabaseConfig();
+            if (!config || !config.url || !config.anonKey) {
+                throw new Error('Configura Supabase antes de subir imágenes.');
+            }
+
+            if (!file || !file.type || !file.type.startsWith('image/')) {
+                throw new Error('El archivo seleccionado no es una imagen válida.');
+            }
+
+            if (file.size > 10 * 1024 * 1024) {
+                throw new Error('La imagen supera el límite de 10MB.');
+            }
+
+            if (!supabaseClient) {
+                await initSupabase();
+            }
+            if (!supabaseClient) {
+                throw new Error('No se pudo conectar con Supabase.');
+            }
+
+            const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const safeProduct = String(productId || 'product').replace(/[^a-zA-Z0-9_-]/g, '-');
+            const fileName = `${safeProduct}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+
+            const { error } = await supabaseClient.storage
+                .from('catalog')
+                .upload(fileName, file, {
+                    contentType: file.type,
+                    upsert: false,
+                    cacheControl: '31536000'
+                });
+
+            if (error) {
+                console.error('Error subiendo imagen del catálogo:', error);
+                throw new Error(error.message || 'No se pudo subir la imagen.');
+            }
+
+            const { data } = supabaseClient.storage
+                .from('catalog')
+                .getPublicUrl(fileName);
+
+            if (!data || !data.publicUrl) {
+                throw new Error('Supabase no devolvió una URL pública.');
+            }
+
+            return data.publicUrl;
+        }
+
         async function processFiles(pIndex, files) {
+            const product = catalog.products[pIndex];
+            if (!product.images) product.images = [];
+
+            const validFiles = files.filter(f =>
+                f &&
+                f.type &&
+                f.type.startsWith('image/') &&
+                f.size <= 10 * 1024 * 1024
+            );
+
+            if (validFiles.length === 0) {
+                toast('Selecciona imágenes válidas de máximo 10MB');
+                return;
+            }
+
+            let loaded = 0;
+            const total = validFiles.length;
+            toast('Subiendo 0/' + total + ' imagen(es)...');
+
+            for (const file of validFiles) {
+                try {
+                    const url = await uploadCatalogImage(file, product.id, 'gallery');
+                    product.images.push({
+                        src: url,
+                        colorId: product.colors[0]?.id || 'black',
+                        view: 'front'
+                    });
+                    loaded++;
+                    toast('Subiendo ' + loaded + '/' + total + ' imagen(es)...');
+                } catch (err) {
+                    console.error('Error subiendo archivo:', err);
+                    toast('Error: ' + (err.message || 'no se pudo subir la imagen'));
+                }
+            }
+
+            if (loaded > 0) {
+                saveCatalog();
+                toast(loaded + ' foto(s) guardada(s) correctamente');
+            }
+        }
+
+
             const product = catalog.products[pIndex];
             if (!product.images) product.images = [];
             const defaultColor = product.colors[0]?.id || 'black';
@@ -1494,17 +1588,23 @@ function loadData() {
             saveHome(); renderHomePanels();
         }
 
-        function handleThumbnailUpload(pIndex, input) {
+        async function handleThumbnailUpload(pIndex, input) {
             const file = input.files[0];
             if (!file) return;
-            if (file.size > 3 * 1024 * 1024) { toast('Maximo 3MB'); return; }
-            const reader = new FileReader();
-            reader.onload = e => {
-                updateProduct(pIndex, 'thumbnail', e.target.result);
+
+            try {
+                toast('Subiendo portada...');
+                const product = catalog.products[pIndex];
+                const url = await uploadCatalogImage(file, product.id, 'thumbnail');
+                updateProduct(pIndex, 'thumbnail', url);
+                saveCatalog();
                 toast('Portada actualizada');
-            };
-            reader.readAsDataURL(file);
-            input.value = '';
+            } catch (err) {
+                console.error('Error subiendo portada:', err);
+                toast('Error: ' + (err.message || 'no se pudo subir la portada'));
+            } finally {
+                input.value = '';
+            }
         }
         function setThumbnailFromGallery(pIndex, src) {
             updateProduct(pIndex, 'thumbnail', src);
